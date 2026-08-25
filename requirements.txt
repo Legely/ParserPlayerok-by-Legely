@@ -1,0 +1,5 @@
+curl_cffi==0.7.3
+beautifulsoup4==4.12.3
+dateparser==1.2.0
+python-dotenv==1.0.1
+playwright==1.48.0
