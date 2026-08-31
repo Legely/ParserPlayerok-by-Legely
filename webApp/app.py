@@ -36,7 +36,141 @@ def emit(event_type: str, **payload):
     event_queue.put({"type": event_type, **payload})
 
 
-def run_scraper(url_input: str, days_input: str):
+def scan_one_profile(url_input: str, cutoff_date, seller_index: int, seller_total: int):
+    """Скраппит один профиль и возвращает отчёт по нему.
+    Логика перехвата/скролла — без изменений от исходного скрипта."""
+    target_url = normalize_url(url_input)
+    username = extract_username(target_url)
+
+    emit("seller_start", index=seller_index, total=seller_total, username=username, target_url=target_url)
+    emit("log", seller=username, level="info",
+         message=f"[{seller_index}/{seller_total}] Открываем профиль: {target_url}")
+
+    collected_nodes = []
+    seen_ids = set()
+
+    def handle_response(response):
+        resp_url = response.url
+        if "/graphql" not in resp_url:
+            return
+        qs = parse_qs(urlparse(resp_url).query)
+        op = qs.get("operationName", [""])[0]
+        if op != "testimonials":
+            return
+        try:
+            if response.status != 200:
+                emit("log", seller=username, level="warn", message=f"testimonials: статус {response.status}, пропускаем")
+                return
+            data = response.json()
+        except Exception as e:
+            emit("log", seller=username, level="warn", message=f"Не удалось распарсить JSON ответа: {e}")
+            return
+
+        if "errors" in data:
+            emit("log", seller=username, level="warn", message=f"GraphQL ошибка: {data['errors']}")
+            return
+
+        edges = data.get("data", {}).get("testimonials", {}).get("edges", [])
+        new_count = 0
+        for edge in edges:
+            node = edge.get("node", edge)
+            nid = node.get("id")
+            if nid and nid not in seen_ids:
+                seen_ids.add(nid)
+                collected_nodes.append(node)
+                new_count += 1
+        if new_count:
+            emit("log", seller=username, level="hit",
+                 message=f"Поймано {new_count} новых отзывов (всего захвачено: {len(collected_nodes)})")
+            emit("progress", seller=username, collected=len(collected_nodes))
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            locale="ru-RU",
+        )
+        page = context.new_page()
+        page.on("response", handle_response)
+
+        emit("log", seller=username, level="info", message="Загружаем страницу...")
+        page.goto(target_url, wait_until="networkidle", timeout=60000)
+        page.wait_for_timeout(2000)
+
+        emit("log", seller=username, level="info", message=f"Отзывов после первой загрузки: {len(collected_nodes)}")
+
+        max_scrolls = 40
+        stale_rounds = 0
+        last_count = len(collected_nodes)
+
+        for _ in range(max_scrolls):
+            if collected_nodes:
+                oldest = collected_nodes[-1]
+                created_at_str = oldest.get("createdAt", "")
+                if created_at_str:
+                    clean = created_at_str.replace("Z", "+00:00")
+                    review_date = datetime.fromisoformat(clean)
+                    if review_date < cutoff_date:
+                        emit("log", seller=username, level="info",
+                             message="Достигнут нужный диапазон дат, останавливаем скролл.")
+                        break
+
+            page.mouse.wheel(0, 3000)
+            page.wait_for_timeout(1200)
+
+            if len(collected_nodes) == last_count:
+                stale_rounds += 1
+            else:
+                stale_rounds = 0
+            last_count = len(collected_nodes)
+
+            if stale_rounds >= 5:
+                emit("log", seller=username, level="info", message="Новые отзывы больше не подгружаются, останавливаемся.")
+                break
+
+        browser.close()
+
+    # Подсчёт продаж по товарам — считаем только отзывы, реально попавшие в диапазон дат.
+    # Раньше в качестве "всего отзывов" ошибочно показывался общий захват (collected_nodes),
+    # включавший записи за пределами cutoff_date, из-за чего число не совпадало с суммой по товарам.
+    sales_data = {}
+    filtered_count = 0
+    for node in collected_nodes:
+        created_at_str = node.get("createdAt", "")
+        if not created_at_str:
+            continue
+        clean = created_at_str.replace("Z", "+00:00")
+        review_date = datetime.fromisoformat(clean)
+        if review_date < cutoff_date:
+            continue
+
+        filtered_count += 1
+        item = node.get("item", {}) or node.get("deal", {}).get("item", {})
+        item_name = item.get("name", "Неизвестный товар")
+        item_slug = item.get("slug", "")
+        item_url = f"https://playerok.com/products/{item_slug}" if item_slug else ""
+
+        if item_name not in sales_data:
+            sales_data[item_name] = {"url": item_url, "count": 0}
+        sales_data[item_name]["count"] += 1
+
+    sorted_sales = sorted(sales_data.items(), key=lambda x: x[1]["count"], reverse=True)
+    results = [{"name": name, "url": info["url"], "count": info["count"]} for name, info in sorted_sales]
+
+    report = {
+        "username": username,
+        "target_url": target_url,
+        "total_reviews": filtered_count,
+        "results": results,
+    }
+    emit("seller_done", **report)
+    return report
+
+
+def run_scraper(url_inputs: list, days_input: str):
     global is_running
     try:
         try:
@@ -45,127 +179,34 @@ def run_scraper(url_input: str, days_input: str):
             emit("error", message="Нужно ввести целое число дней.")
             return
 
-        target_url = normalize_url(url_input)
-        username = extract_username(target_url)
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_limit)
+        seller_total = len(url_inputs)
+        sellers_reports = []
 
-        collected_nodes = []
-        seen_ids = set()
-
-        emit("log", level="info", message=f"Открываем профиль: {target_url}")
-
-        def handle_response(response):
-            resp_url = response.url
-            if "/graphql" not in resp_url:
-                return
-            qs = parse_qs(urlparse(resp_url).query)
-            op = qs.get("operationName", [""])[0]
-            if op != "testimonials":
-                return
+        for idx, url_input in enumerate(url_inputs, start=1):
             try:
-                if response.status != 200:
-                    emit("log", level="warn", message=f"testimonials: статус {response.status}, пропускаем")
-                    return
-                data = response.json()
+                report = scan_one_profile(url_input, cutoff_date, idx, seller_total)
+                sellers_reports.append(report)
             except Exception as e:
-                emit("log", level="warn", message=f"Не удалось распарсить JSON ответа: {e}")
-                return
+                emit("log", seller=url_input, level="error", message=f"Не удалось обработать {url_input}: {e}")
 
-            if "errors" in data:
-                emit("log", level="warn", message=f"GraphQL ошибка: {data['errors']}")
-                return
-
-            edges = data.get("data", {}).get("testimonials", {}).get("edges", [])
-            new_count = 0
-            for edge in edges:
-                node = edge.get("node", edge)
-                nid = node.get("id")
-                if nid and nid not in seen_ids:
-                    seen_ids.add(nid)
-                    collected_nodes.append(node)
-                    new_count += 1
-            if new_count:
-                emit("log", level="hit", message=f"Поймано {new_count} новых отзывов (всего: {len(collected_nodes)})")
-                emit("progress", collected=len(collected_nodes))
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-                locale="ru-RU",
-            )
-            page = context.new_page()
-            page.on("response", handle_response)
-
-            emit("log", level="info", message="Загружаем страницу...")
-            page.goto(target_url, wait_until="networkidle", timeout=60000)
-            page.wait_for_timeout(2000)
-
-            emit("log", level="info", message=f"Отзывов после первой загрузки: {len(collected_nodes)}")
-
-            max_scrolls = 40
-            stale_rounds = 0
-            last_count = len(collected_nodes)
-
-            for _ in range(max_scrolls):
-                if collected_nodes:
-                    oldest = collected_nodes[-1]
-                    created_at_str = oldest.get("createdAt", "")
-                    if created_at_str:
-                        clean = created_at_str.replace("Z", "+00:00")
-                        review_date = datetime.fromisoformat(clean)
-                        if review_date < cutoff_date:
-                            emit("log", level="info", message="Достигнут нужный диапазон дат, останавливаем скролл.")
-                            break
-
-                page.mouse.wheel(0, 3000)
-                page.wait_for_timeout(1200)
-
-                if len(collected_nodes) == last_count:
-                    stale_rounds += 1
-                else:
-                    stale_rounds = 0
-                last_count = len(collected_nodes)
-
-                if stale_rounds >= 5:
-                    emit("log", level="info", message="Новые отзывы больше не подгружаются, останавливаемся.")
-                    break
-
-            browser.close()
-
-        # Подсчёт продаж по товарам с учётом даты
-        sales_data = {}
-        for node in collected_nodes:
-            created_at_str = node.get("createdAt", "")
-            if not created_at_str:
-                continue
-            clean = created_at_str.replace("Z", "+00:00")
-            review_date = datetime.fromisoformat(clean)
-            if review_date < cutoff_date:
-                continue
-
-            item = node.get("item", {}) or node.get("deal", {}).get("item", {})
-            item_name = item.get("name", "Неизвестный товар")
-            item_slug = item.get("slug", "")
-            item_url = f"https://playerok.com/products/{item_slug}" if item_slug else ""
-
-            if item_name not in sales_data:
-                sales_data[item_name] = {"url": item_url, "count": 0}
-            sales_data[item_name]["count"] += 1
-
-        sorted_sales = sorted(sales_data.items(), key=lambda x: x[1]["count"], reverse=True)
-        results = [{"name": name, "url": info["url"], "count": info["count"]} for name, info in sorted_sales]
+        # Общий отчёт по всем продавцам сразу — товары агрегируются по названию.
+        combined = {}
+        for sr in sellers_reports:
+            for r in sr["results"]:
+                key = r["name"]
+                if key not in combined:
+                    combined[key] = {"url": r["url"], "count": 0}
+                combined[key]["count"] += r["count"]
+        combined_sorted = sorted(combined.items(), key=lambda x: x[1]["count"], reverse=True)
+        combined_results = [{"name": n, "url": i["url"], "count": i["count"]} for n, i in combined_sorted]
 
         emit(
             "done",
-            username=username,
-            target_url=target_url,
             days=days_limit,
-            total_reviews=len(collected_nodes),
-            results=results,
+            sellers=sellers_reports,
+            combined=combined_results,
+            total_reviews=sum(sr["total_reviews"] for sr in sellers_reports),
         )
 
     except Exception as e:
@@ -184,11 +225,17 @@ def index():
 def start():
     global is_running
     data = request.get_json(force=True, silent=True) or {}
-    url_input = (data.get("url") or "").strip()
+    urls_raw = data.get("urls") or ""
     days_input = str(data.get("days") or "").strip()
 
-    if not url_input:
-        return jsonify({"ok": False, "error": "Укажите ссылку на профиль."}), 400
+    url_inputs = []
+    for line in urls_raw.splitlines():
+        line = line.strip()
+        if line and line not in url_inputs:
+            url_inputs.append(line)
+
+    if not url_inputs:
+        return jsonify({"ok": False, "error": "Укажите хотя бы одну ссылку на профиль."}), 400
 
     with state_lock:
         if is_running:
@@ -202,7 +249,7 @@ def start():
         except queue.Empty:
             break
 
-    thread = threading.Thread(target=run_scraper, args=(url_input, days_input), daemon=True)
+    thread = threading.Thread(target=run_scraper, args=(url_inputs, days_input), daemon=True)
     thread.start()
     return jsonify({"ok": True})
 
