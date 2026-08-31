@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сканер отзывов Playerok</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+         :root {
+            --bg: #12151b;
+            --panel: #181c24;
+            --panel-raised: #1e232c;
+            --line: #2a3038;
+            --text: #e7e6e2;
+            --text-dim: #838d99;
+            --amber: #e3a13c;
+            --amber-dim: #a37934;
+            --teal: #5fb3a3;
+            --red: #d9634c;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Space Grotesk', sans-serif;
+            min-height: 100vh;
+        }
+        
+        .shell {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            min-height: 100vh;
+        }
+        
+        @media (max-width: 860px) {
+            .shell {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* ---------- sidebar ---------- */
+        
+        .sidebar {
+            border-right: 1px solid var(--line);
+            padding: 28px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+        
+        .brand {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        
+        .brand-mark {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--amber);
+            flex: none;
+        }
+        
+        .brand h1 {
+            font-size: 17px;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: 0.2px;
+        }
+        
+        .brand-sub {
+            font-size: 12.5px;
+            color: var(--text-dim);
+            margin: -14px 0 0 19px;
+            line-height: 1.5;
+        }
+        
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .field label {
+            font-size: 12.5px;
+            color: var(--text-dim);
+        }
+        
+        .field input {
+            background: var(--panel-raised);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            padding: 10px 12px;
+            outline: none;
+            transition: border-color .15s ease;
+        }
+        
+        .field input:focus {
+            border-color: var(--amber-dim);
+        }
+        
+        .field input::placeholder {
+            color: #4d545e;
+        }
+        
+        .field-hint {
+            font-size: 11.5px;
+            color: #5b6470;
+        }
+        
+        .go-btn {
+            margin-top: 6px;
+            background: var(--amber);
+            color: #1a1305;
+            border: none;
+            border-radius: 6px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 12px 16px;
+            cursor: pointer;
+            transition: filter .15s ease, transform .05s ease;
+        }
+        
+        .go-btn:hover {
+            filter: brightness(1.08);
+        }
+        
+        .go-btn:active {
+            transform: translateY(1px);
+        }
+        
+        .go-btn:disabled {
+            background: var(--panel-raised);
+            color: var(--text-dim);
+            cursor: not-allowed;
+            border: 1px solid var(--line);
+        }
+        
+        .status-row {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-dim);
+            padding-top: 4px;
+            border-top: 1px solid var(--line);
+            margin-top: 4px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4b525c;
+            flex: none;
+        }
+        
+        .status-dot.running {
+            background: var(--amber);
+            box-shadow: 0 0 0 0 rgba(227, 161, 60, .6);
+            animation: pulse 1.4s infinite;
+        }
+        
+        .status-dot.done {
+            background: var(--teal);
+        }
+        
+        .status-dot.error {
+            background: var(--red);
+        }
+        
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(227, 161, 60, .55);
+            }
+            70% {
+                box-shadow: 0 0 0 7px rgba(227, 161, 60, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(227, 161, 60, 0);
+            }
+        }
+        
+        .about {
+            margin-top: auto;
+            font-size: 11.5px;
+            line-height: 1.6;
+            color: #4d545e;
+            border-top: 1px solid var(--line);
+            padding-top: 16px;
+        }
+        /* ---------- main ---------- */
+        
+        .main {
+            padding: 28px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            min-width: 0;
+        }
+        
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .main-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-dim);
+        }
+        
+        .counter {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 34px;
+            font-weight: 600;
+            color: var(--text);
+            line-height: 1;
+        }
+        
+        .counter span {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-dim);
+            margin-left: 8px;
+        }
+        
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line);
+            font-size: 12.5px;
+            color: var(--text-dim);
+        }
+        
+        .term {
+            height: 320px;
+            overflow-y: auto;
+            padding: 14px 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            line-height: 1.65;
+        }
+        
+        .term:empty::before {
+            content: "Журнал появится здесь после запуска сканирования.";
+            color: #4d545e;
+        }
+        
+        .term-line {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .term-line .t {
+            color: #4d545e;
+            margin-right: 8px;
+        }
+        
+        .term-line.info .m {
+            color: var(--text-dim);
+        }
+        
+        .term-line.hit .m {
+            color: var(--amber);
+        }
+        
+        .term-line.warn .m {
+            color: #c98b4a;
+        }
+        
+        .term-line.error .m {
+            color: var(--red);
+        }
+        
+        .cursor {
+            display: inline-block;
+            width: 7px;
+            height: 13px;
+            background: var(--amber);
+            margin-left: 2px;
+            vertical-align: -2px;
+            animation: blink 1s steps(1) infinite;
+        }
+        
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+        /* ---------- results ---------- */
+        
+        .results-empty {
+            padding: 30px 16px;
+            text-align: center;
+            color: #4d545e;
+            font-size: 13px;
+        }
+        
+        table.results {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        table.results th {
+            text-align: left;
+            font-weight: 500;
+            font-size: 11.5px;
+            color: var(--text-dim);
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--line);
+        }
+        
+        table.results th.num,
+        table.results td.num {
+            text-align: right;
+        }
+        
+        table.results td {
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--line);
+        }
+        
+        table.results tr:last-child td {
+            border-bottom: none;
+        }
+        
+        table.results a {
+            color: var(--text);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--text-dim);
+        }
+        
+        table.results a:hover {
+            color: var(--amber);
+            border-color: var(--amber);
+        }
+        
+        .count-cell {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+        
+        .bar-track {
+            height: 4px;
+            background: var(--panel-raised);
+            border-radius: 2px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+        
+        .bar-fill {
+            height: 100%;
+            background: var(--amber);
+        }
+        
+        .banner {
+            display: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            border: 1px solid;
+        }
+        
+        .banner.show {
+            display: block;
+        }
+        
+        .banner.err {
+            color: var(--red);
+            border-color: rgba(217, 99, 76, .4);
+            background: rgba(217, 99, 76, .08);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="shell">
+
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-mark"></span>
+                <h1>Сканер отзывов</h1>
+            </div>
+            <p class="brand-sub">Playerok · подсчёт продаж по товарам</p>
+
+            <div class="field">
+                <label for="url">Ссылка на профиль</label>
+                <input id="url" type="text" placeholder="https://playerok.com/profile/username" autocomplete="off">
+                <span class="field-hint">Профиль, /products или /reviews — подходит любой вариант</span>
+            </div>
+
+            <div class="field">
+                <label for="days">Период, дней</label>
+                <input id="days" type="number" min="1" value="2" autocomplete="off">
+            </div>
+
+            <button class="go-btn" id="goBtn">Начать сбор</button>
+
+            <div class="banner err" id="banner"></div>
+
+            <div class="status-row">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Ожидание запуска</span>
+            </div>
+
+            <p class="about">Открывает страницу отзывов в headless-браузере, перехватывает GraphQL-ответы operationName=testimonials и скроллит вниз, пока не выйдет за указанный период.</p>
+        </aside>
+
+        <main class="main">
+
+            <div class="main-header">
+                <div>
+                    <h2 id="scopeLabel">Профиль не указан</h2>
+                    <div class="counter" id="counter">0<span>отзывов поймано</span></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <span>Журнал захвата</span>
+                    <span id="termMeta">—</span>
+                </div>
+                <div class="term" id="term"></div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <span>Продажи по товарам</span>
+                    <span id="resultsMeta">—</span>
+                </div>
+                <div id="resultsBody">
+                    <div class="results-empty">Отчёт появится после завершения сканирования.</div>
+                </div>
+            </div>
+
+        </main>
+
+    </div>
+
+    <script>
+        const els = {
+            url: document.getElementById('url'),
+            days: document.getElementById('days'),
+            goBtn: document.getElementById('goBtn'),
+            banner: document.getElementById('banner'),
+            statusDot: document.getElementById('statusDot'),
+            statusText: document.getElementById('statusText'),
+            scopeLabel: document.getElementById('scopeLabel'),
+            counter: document.getElementById('counter'),
+            term: document.getElementById('term'),
+            termMeta: document.getElementById('termMeta'),
+            resultsBody: document.getElementById('resultsBody'),
+            resultsMeta: document.getElementById('resultsMeta'),
+        };
+
+        function setStatus(kind, text) {
+            els.statusDot.className = 'status-dot' + (kind ? ' ' + kind : '');
+            els.statusText.textContent = text;
+        }
+
+        function showBanner(msg) {
+            if (!msg) {
+                els.banner.classList.remove('show');
+                return;
+            }
+            els.banner.textContent = msg;
+            els.banner.classList.add('show');
+        }
+
+        function logLine(level, message) {
+            const time = new Date().toLocaleTimeString('ru-RU', {
+                hour12: false
+            });
+            const row = document.createElement('div');
+            row.className = 'term-line ' + level;
+            row.innerHTML = `<span class="t">${time}</span><span class="m"></span>`;
+            row.querySelector('.m').textContent = message;
+            els.term.appendChild(row);
+            els.term.scrollTop = els.term.scrollHeight;
+        }
+
+        function renderResults(data) {
+            if (!data.results.length) {
+                els.resultsBody.innerHTML = '<div class="results-empty">Продаж за указанный период не найдено.</div>';
+                els.resultsMeta.textContent = '0 позиций';
+                return;
+            }
+
+            const max = Math.max(...data.results.map(r => r.count));
+            const rows = data.results.map(r => `
+    <tr>
+      <td>
+        ${r.url ? `<a href="${r.url}" target="_blank" rel="noopener">${r.name}</a>` : r.name}
+        <div class="bar-track"><div class="bar-fill" style="width:${(r.count / max * 100).toFixed(0)}%"></div></div>
+      </td>
+      <td class="num count-cell">${r.count}</td>
+    </tr>
+  `).join('');
+
+  els.resultsBody.innerHTML = `
+    <table class="results">
+      <thead><tr><th>Товар</th><th class="num">Продаж</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  els.resultsMeta.textContent = `${data.results.length} позиций · ${data.total_reviews} отзывов за ${data.days} дн.`;
+}
+
+function startScan(){
+  const url = els.url.value.trim();
+  const days = els.days.value.trim();
+  showBanner('');
+
+  if(!url){
+    showBanner('Укажите ссылку на профиль.');
+    return;
+  }
+
+  els.goBtn.disabled = true;
+  els.term.innerHTML = '';
+  els.resultsBody.innerHTML = '<div class="results-empty">Отчёт появится после завершения сканирования.</div>';
+  els.resultsMeta.textContent = '—';
+  els.counter.innerHTML = '0<span>отзывов поймано</span>';
+  els.scopeLabel.textContent = url;
+  els.termMeta.textContent = 'подключение…';
+  setStatus('running', 'Сканирование запущено');
+
+  fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url, days})
+  })
+  .then(r => r.json().then(body => ({ok: r.ok, body})))
+  .then(({ok, body}) => {
+    if(!ok){
+      throw new Error(body.error || 'Не удалось запустить сканирование.');
+    }
+    listenToStream();
+  })
+  .catch(err => {
+    setStatus('error', 'Ошибка запуска');
+    showBanner(err.message);
+    els.goBtn.disabled = false;
+  });
+}
+
+function listenToStream(){
+  const source = new EventSource('/api/stream');
+  els.termMeta.textContent = 'захват активен';
+
+  source.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+
+    if(event.type === 'log'){
+      logLine(event.level || 'info', event.message);
+    }
+
+    if(event.type === 'progress'){
+      els.counter.innerHTML = `${event.collected}<span>отзывов поймано</span>`;
+    }
+
+    if(event.type === 'done'){
+      logLine('info', `Готово: ${event.total_reviews} отзывов за ${event.days} дн.`);
+      els.termMeta.textContent = 'завершено';
+      setStatus('done', `Готово · ${event.username}`);
+      renderResults(event);
+      els.goBtn.disabled = false;
+      source.close();
+    }
+
+    if(event.type === 'error'){
+      logLine('error', event.message);
+      els.termMeta.textContent = 'ошибка';
+      setStatus('error', 'Сканирование прервано');
+      showBanner(event.message);
+      els.goBtn.disabled = false;
+      source.close();
+    }
+  };
+
+  source.onerror = () => {
+    // соединение закрывается сервером после done/error — это ожидаемо
+  };
+}
+
+els.goBtn.addEventListener('click', startScan);
+els.url.addEventListener('keydown', e => { if(e.key === 'Enter') startScan(); });
+els.days.addEventListener('keydown', e => { if(e.key === 'Enter') startScan(); });
+    </script>
+
+</body>
+
+</html>

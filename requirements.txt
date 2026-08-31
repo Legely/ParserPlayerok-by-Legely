@@ -3,3 +3,4 @@ beautifulsoup4==4.12.3
 dateparser==1.2.0
 python-dotenv==1.0.1
 playwright==1.48.0
+Flask==3.0.0
