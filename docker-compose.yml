@@ -1,0 +1,8 @@
+services:
+  parser-playerok:
+    build: .
+    container_name: parser-playerok
+    ports:
+      - "5000:5000"
+    shm_size: "1gb"
+    restart: unless-stopped
